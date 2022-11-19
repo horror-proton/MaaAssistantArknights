@@ -1,0 +1,21 @@
+name: 'typos'
+
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'docs/**'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'docs/**'
+  workflow_dispatch:
+
+jobs:
+  run:
+    name: Spell Check with Typos
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+    - uses: actions/checkout@v3
+    - uses: crate-ci/typos@master
