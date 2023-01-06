@@ -1,0 +1,23 @@
+name: android-test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - run: |
+          sudo apt update
+          sudo apt install -y jp2a
+
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          script: ./temp.sh
+      - uses: actions/upload-artifact@v3
+        with:
+          name: screencap
+          path: ./sc.png
