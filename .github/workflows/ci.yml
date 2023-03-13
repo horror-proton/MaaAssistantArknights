@@ -313,3 +313,110 @@ jobs:
           gh workflow run --repo $GITHUB_REPOSITORY release-mirrors
         env:
           GH_TOKEN: ${{ github.token }}
+
+  archlinux:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [meta]
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: Create user
+        run: |
+          chmod -R a+rw .
+          useradd arch -m -d /home/arch
+          echo "arch ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+          sudo --set-home --user=arch mkdir -p ~arch/.cache/paru
+      - name: Cache packages
+        uses: actions/cache@v3
+        id: packages-cache
+        with:
+          key: arch-packages
+          path: | 
+            /home/arch/.cache/paru
+      - name: Upgrade system
+        run: |
+          pacman-key --init
+          pacman -Sy --needed --noconfirm archlinux-keyring
+          pacman -Syu --noconfirm --needed git github-cli openssh
+      - name: Add unofficial user repositories
+        run: |
+          cat << _EOF >> /etc/pacman.conf
+          [archlinuxcn]
+            Server = https://repo.archlinuxcn.org/\$arch
+          _EOF
+          pacman -Sy --noconfirm && pacman -S --noconfirm archlinuxcn-keyring
+          pacman -Syu --noconfirm
+      - name: Install aur helper
+        run: |
+          pacman -S --noconfirm paru && exit 0
+
+          sudo --set-home --user=arch -i -- << _EOF
+          set -e
+          git clone https://aur.archlinux.org/paru.git
+          pushd paru
+          makepkg --noconfirm --rmdeps -si
+          popd
+          rm -rf paru
+          _EOF
+      - name: Setup ssh private key
+        run: |
+          sudo --set-home --user=arch -i -- << _EOF
+          set -e
+          mkdir -p --mode=700 ~/.ssh
+          echo '${{ secrets.AUR_SSH_PRIVATE_KEY }}' > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H aur.archlinux.org >> ~/.ssh/known_hosts
+          _EOF
+      - name: Makepkg
+        run: |
+          sudo --set-home --user=arch -i -- << _EOF
+          set -e
+          git clone ssh://aur@aur.archlinux.org/maa-assistant-arknights.git
+          cd maa-assistant-arknights
+
+          sed -i '/^_pkgver=/c_pkgver=${{ needs.meta.outputs.tag }}' ./PKGBUILD
+          sed -i '/^pkgrel=/cpkgrel=1' ./PKGBUILD
+
+          git diff
+
+          export MAKEFLAGS="-j$(nproc --all)"
+          paru -S onnxruntime-git --noconfirm --skipreview --keepsrc
+          paru -U --noconfirm --skipreview
+          _EOF
+      - name: Commit changes
+        run: |
+          sudo --set-home --user=arch -i -- << _EOF
+          set -e
+
+          cd maa-assistant-arknights
+          makepkg --printsrcinfo > .SRCINFO
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          git add PKGBUILD .SRCINFO
+          git commit -m "[BOT] update to ${{ needs.meta.outputs.tag }}" || true
+          git push --verbose --dry-run
+
+          _EOF
+      - uses: actions/upload-artifact@v3
+        with:
+          name: archpkg
+          path: /home/arch/maa-assistant-arknights/*.pkg.tar.zst
+      - run: |
+          gh release view ${{ needs.meta.outputs.tag }} --repo $GITHUB_REPOSITORY || exit 0
+          gh release upload ${{ needs.meta.outputs.tag }} ~arch/maa-assistant-arknights/*.pkg.tar.zst --repo $GITHUB_REPOSITORY --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Clear GitHub action cache
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh extension install actions/gh-actions-cache
+          if ${{ steps.packages-cache.outputs.cache-hit == 'true' }}; then
+            gh actions-cache delete arch-packages --confirm --repo $GITHUB_REPOSITORY
+          fi
