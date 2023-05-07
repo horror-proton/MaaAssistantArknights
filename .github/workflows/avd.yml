@@ -1,0 +1,24 @@
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+  main:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          sudo apt update
+          sudo apt install jp2a
+
+          cat << _EOF | sed 's/\r$//' | tee ./script.sh
+          ${{ vars.SCRIPT }}
+          _EOF
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          script: bash -e script.sh
+      - uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: screen
+          path: '*'
