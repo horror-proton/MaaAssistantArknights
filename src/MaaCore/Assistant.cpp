@@ -80,14 +80,17 @@ Assistant::~Assistant()
     m_thread_idle = true;
 
     {
+        std::cout << __LINE__ << std::endl;
         std::unique_lock<std::mutex> lock(m_call_mutex);
         m_call_condvar.notify_all();
     }
     {
+        std::cout << __LINE__ << std::endl;
         std::unique_lock<std::mutex> lock(m_mutex);
         m_condvar.notify_all();
     }
     {
+        std::cout << __LINE__ << std::endl;
         std::unique_lock<std::mutex> lock(m_msg_mutex);
         m_msg_condvar.notify_all();
     }
@@ -98,6 +101,7 @@ Assistant::~Assistant()
     if (m_call_thread.joinable()) {
         m_call_thread.join();
     }
+    std::cout << __LINE__ << std::endl;
     if (m_msg_thread.joinable()) {
         m_msg_thread.join();
     }
@@ -466,7 +470,9 @@ void Assistant::msg_proc()
         }
 
         if (m_msg_queue.empty()) {
+            std::cout << __LINE__ << std::endl;
             m_msg_condvar.wait(lock);
+            std::cout << __LINE__ << std::endl;
             continue;
         }
 
