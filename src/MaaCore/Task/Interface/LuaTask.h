@@ -10,12 +10,14 @@ namespace asst
     class LuaTask : public InterfaceTask
     {
     public:
-        inline static constexpr std::string_view TaskType = "Lua";
+        inline static constexpr std::string_view TaskType = "Custom";
 
         LuaTask(const AsstCallback& callback, Assistant* inst) : InterfaceTask(callback, inst, TaskType) {}
         ~LuaTask() override = default;
 
         bool run() override;
+
+        bool set_params(const json::value &params) override;
 
     private:
         template <typename Func>

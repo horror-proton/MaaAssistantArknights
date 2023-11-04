@@ -26,18 +26,16 @@ bool asst::LuaTask::run()
 
     luaL_openlibs(l);
     lua_add_path(l, {
-                        ResDir.get().string() + "/lua/?.lua",
-                        ResDir.get().string() + "/lua/?/init.lua",
+                        ResDir.get() / "lua" / "?.lua",
+                        ResDir.get() / "lua" / "?" / "init.lua",
                     });
 
     lua_newtable(l);
-    lua_pushvalue(l, -1);      // duplicate it on stack
-    lua_setglobal(l, "maav0"); // this pops one
 
     add_closure(l, [](lua_State* s, LuaTask* p) -> int {
-            p->sleep(luaL_checknumber(s, 1));
-            return 0;
-            });
+        p->sleep(static_cast<unsigned>(std::max(0., luaL_checknumber(s, 1))));
+        return 0;
+    });
     lua_setfield(l, -2, "sleep");
 
     add_closure(l, [](lua_State* s, LuaTask* p) -> int {
@@ -88,7 +86,7 @@ bool asst::LuaTask::run()
     });
     lua_setfield(l, -2, "match_task");
 
-    lua_pop(l, 1); // global maav0
+    lua_setglobal(l, "maav0");
 
     std::string script = R"(
 print(package.path)
@@ -111,5 +109,10 @@ print("done")
     };
 
     lua_close(l);
+    return true;
+}
+
+bool asst::LuaTask::set_params(const json::value&)
+{
     return true;
 }
