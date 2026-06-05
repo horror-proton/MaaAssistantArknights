@@ -68,7 +68,7 @@ public:
 
     virtual bool stop_game(const std::string& client_type [[maybe_unused]]) override
     {
-        // TODO: Implement this pure virtual method.
+        Log.warn("stop_game is not implemented on X11Controller");
         return false;
     }
 
@@ -84,7 +84,7 @@ public:
 
         result &= inject_input_event(InputEvent { .type = TOUCH_DOWN, .point = p });
 
-        // result &= inject_input_event(InputEvent { .type = WAIT_MS, .milisec = 10 });
+        result &= inject_input_event(InputEvent { .type = WAIT_MS, .milisec = 50 });
 
         result &= inject_input_event(InputEvent { .type = TOUCH_UP, .point = p });
 
