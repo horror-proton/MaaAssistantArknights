@@ -12,20 +12,25 @@ bool asst::X11Controller::connect(
     const std::string& address,
     const std::string& config [[maybe_unused]])
 {
+    if (!m_lib) {
+        Log.error("Xlib is not loaded");
+        return false;
+    }
+
     if (m_display != nullptr) {
-        XCloseDisplay(m_display);
+        m_lib.XCloseDisplay(m_display);
         m_display = nullptr;
     }
     set_window(None);
 
-    XSetErrorHandler([](Display* display, XErrorEvent* e) -> int {
+    m_lib.XSetErrorHandler([](Display* display, XErrorEvent* e) -> int {
         char buf[1024];
-        XGetErrorText(display, e->error_code, buf, sizeof(buf));
+        m_lib.XGetErrorText(display, e->error_code, buf, sizeof(buf));
         Log.error("X11:", std::string(buf));
         return True;
     });
 
-    m_display = XOpenDisplay(nullptr);
+    m_display = m_lib.XOpenDisplay(nullptr);
     if (m_display == nullptr) {
         Log.error("Failed to open X display");
         set_window(None);
@@ -52,12 +57,12 @@ bool asst::X11Controller::connect(
     if (auto attr = get_xwin_attrib(); attr) {
         Log.info("Connected to X display, window, ", "size:", attr->width, "x", attr->height, "rescaling");
         // likely has no effect, you still have to set the resolution in game manually
-        if (XMoveResizeWindow(m_display, m_window, attr->x, attr->y, 1280, 720) == False) {
+        if (m_lib.XMoveResizeWindow(m_display, m_window, attr->x, attr->y, 1280, 720) == False) {
             Log.info("Failed to rescale the window");
             set_window(None);
             return false;
         }
-        XFlush(m_display);
+        m_lib.XFlush(m_display);
         return true;
     }
     set_window(None);
@@ -68,8 +73,10 @@ bool asst::X11Controller::screencap(cv::Mat& image_payload, bool allow_reconnect
 {
     using enum InputEvent::Type;
 
+    inject_input_event(InputEvent { .type = WAIT_MS, .milisec = 1000 });
+
     if (auto attrib = get_xwin_attrib(); attrib) {
-        XImage* ximg = XGetImage(m_display, m_window, 0, 0, attrib->width, attrib->height, AllPlanes, ZPixmap);
+        XImage* ximg = m_lib.XGetImage(m_display, m_window, 0, 0, attrib->width, attrib->height, AllPlanes, ZPixmap);
         if (ximg != nullptr) {
             ximg_to_cv(image_payload, ximg);
             XDestroyImage(ximg);
@@ -163,15 +170,15 @@ bool asst::X11Controller::inject_input_event(const InputEvent& event)
     switch (event.type) {
     case TOUCH_DOWN:
         bev.type = ButtonPress;
-        return XSendEvent(bev.display, bev.window, True, ButtonPressMask, reinterpret_cast<XEvent*>(&bev)) == True &&
-               XFlush(bev.display) == True;
+        return m_lib.XSendEvent(bev.display, bev.window, True, ButtonPressMask, reinterpret_cast<XEvent*>(&bev)) == True &&
+               m_lib.XFlush(bev.display) == True;
     case TOUCH_UP:
         bev.type = ButtonRelease;
-        return XSendEvent(bev.display, bev.window, True, ButtonReleaseMask, reinterpret_cast<XEvent*>(&bev)) == True &&
-               XFlush(bev.display) == True;
+        return m_lib.XSendEvent(bev.display, bev.window, True, ButtonReleaseMask, reinterpret_cast<XEvent*>(&bev)) == True &&
+               m_lib.XFlush(bev.display) == True;
     case TOUCH_MOVE:
-        return XSendEvent(bev.display, bev.window, True, PointerMotionMask, reinterpret_cast<XEvent*>(&mev)) == True &&
-               XFlush(bev.display) == True;
+        return m_lib.XSendEvent(bev.display, bev.window, True, PointerMotionMask, reinterpret_cast<XEvent*>(&mev)) == True &&
+               m_lib.XFlush(bev.display) == True;
     case TOUCH_RESET:
         return true;
     case KEY_DOWN:
@@ -184,7 +191,7 @@ bool asst::X11Controller::inject_input_event(const InputEvent& event)
         std::this_thread::sleep_for(std::chrono::milliseconds(event.milisec));
         return true;
     case COMMIT:
-        return XFlush(bev.display) == True;
+        return m_lib.XFlush(bev.display) == True;
     case UNKNOWN:
         Log.error("Unknown input event type");
         return false;
@@ -195,7 +202,7 @@ bool asst::X11Controller::inject_input_event(const InputEvent& event)
 
 bool asst::X11Controller::focus_window() const
 {
-    Atom atom = XInternAtom(m_display, "_NET_ACTIVE_WINDOW", False);
+    Atom atom = m_lib.XInternAtom(m_display, "_NET_ACTIVE_WINDOW", False);
 
     XEvent ev { };
     ev.xclient.type = ClientMessage;
@@ -210,7 +217,7 @@ bool asst::X11Controller::focus_window() const
     ev.xclient.data.l[3] = 0;
     ev.xclient.data.l[4] = 0;
 
-    Status s = XSendEvent(
+    Status s = m_lib.XSendEvent(
         m_display,
         DefaultRootWindow(m_display),
         False,
@@ -225,9 +232,9 @@ bool asst::X11Controller::send_keysym(KeySym keysym, int type) const
         return false;
     }
 
-    focus_window() && XFlush(m_display) == True;
+    focus_window() && m_lib.XFlush(m_display) == True;
 
-    KeyCode keycode = XKeysymToKeycode(m_display, keysym);
+    KeyCode keycode = m_lib.XKeysymToKeycode(m_display, keysym);
 
     XKeyEvent kev {
         .type = type,
@@ -246,8 +253,8 @@ bool asst::X11Controller::send_keysym(KeySym keysym, int type) const
     };
 
     const auto event_mask = type == KeyPress ? KeyPressMask : KeyReleaseMask;
-    return XSendEvent(m_display, m_window, True, event_mask, reinterpret_cast<XEvent*>(&kev)) == True &&
-           XFlush(m_display) == True;
+    return m_lib.XSendEvent(m_display, m_window, True, event_mask, reinterpret_cast<XEvent*>(&kev)) == True &&
+           m_lib.XFlush(m_display) == True;
 }
 
 #endif

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #if defined(__linux__) && !defined(__ANDROID__)
 
 #include <optional>
@@ -11,6 +12,7 @@
 #include "Platform/PlatformIO.h"
 #include "SwipeHelper.hpp"
 #include "Utils/DebugImageHelper.hpp"
+#include "Utils/LibraryHolder.hpp"
 #include "Utils/Logger.hpp"
 
 extern "C"
@@ -24,19 +26,47 @@ extern "C"
 namespace asst
 {
 
-struct X11Controller : public ControllerAPI, protected InstHelper
+using Display = ::Display;
+using Window = ::Window;
+using XWindowAttributes = ::XWindowAttributes;
+
+struct xlib
+{
+    std::function<Display*(const char*)> XOpenDisplay;
+    std::function<int(Display*)> XCloseDisplay;
+    std::function<XErrorHandler(XErrorHandler)> XSetErrorHandler;
+    std::function<int(Display*, int, char*, int)> XGetErrorText;
+    std::function<int(Display*, Window, XWindowAttributes*)> XGetWindowAttributes;
+    std::function<int(Display*, Window, int, int, unsigned int, unsigned int)> XMoveResizeWindow;
+    std::function<int(Display*)> XFlush;
+    std::function<XImage*(Display*, Drawable, int, int, unsigned int, unsigned int, unsigned long, int)> XGetImage;
+    std::function<Status(Display*, Window, Bool, long, XEvent*)> XSendEvent;
+    std::function<Atom(Display*, const char*, Bool)> XInternAtom;
+    std::function<KeyCode(Display*, KeySym)> XKeysymToKeycode;
+
+    explicit operator bool() const noexcept
+    {
+        return XOpenDisplay && XCloseDisplay && XSetErrorHandler && XGetErrorText && XGetWindowAttributes &&
+               XMoveResizeWindow && XFlush && XGetImage && XSendEvent && XInternAtom && XKeysymToKeycode;
+    }
+};
+
+struct X11Controller : public ControllerAPI, protected InstHelper, LibraryHolder<X11Controller>
 {
 public:
     X11Controller(AsstCallback callback, Assistant* inst, PlatformType) :
         InstHelper(inst),
         m_callback(std::move(callback))
     {
+        if (!load_xlib()) {
+            Log.error("Failed to load Xlib");
+        }
     }
 
     virtual ~X11Controller() override
     {
-        if (m_display) {
-            XCloseDisplay(m_display);
+        if (m_display && m_lib.XCloseDisplay) {
+            m_lib.XCloseDisplay(m_display);
         }
     }
 
@@ -138,7 +168,7 @@ protected:
         }
 
         XWindowAttributes attr;
-        if (XGetWindowAttributes(m_display, m_window, &attr) == False) {
+        if (m_lib.XGetWindowAttributes(m_display, m_window, &attr) == False) {
             Log.error("Failed to get window attributes for window", m_window);
             // set_window(None);
             return std::nullopt;
@@ -166,7 +196,37 @@ protected:
     bool focus_window() const;
 
 private:
+    xlib m_lib;
+
     AsstCallback m_callback = nullptr;
+
+    template <typename FuncT>
+    bool load_xlib_function(std::function<FuncT>& func, const std::string& name)
+    {
+        func = get_function<FuncT>(name);
+        return static_cast<bool>(func);
+    }
+
+    bool load_xlib()
+    {
+        if (!load_library("libX11")) {
+            return false;
+        }
+
+        bool result = true;
+        result &= load_xlib_function(m_lib.XOpenDisplay, "XOpenDisplay");
+        result &= load_xlib_function(m_lib.XCloseDisplay, "XCloseDisplay");
+        result &= load_xlib_function(m_lib.XSetErrorHandler, "XSetErrorHandler");
+        result &= load_xlib_function(m_lib.XGetErrorText, "XGetErrorText");
+        result &= load_xlib_function(m_lib.XGetWindowAttributes, "XGetWindowAttributes");
+        result &= load_xlib_function(m_lib.XMoveResizeWindow, "XMoveResizeWindow");
+        result &= load_xlib_function(m_lib.XFlush, "XFlush");
+        result &= load_xlib_function(m_lib.XGetImage, "XGetImage");
+        result &= load_xlib_function(m_lib.XSendEvent, "XSendEvent");
+        result &= load_xlib_function(m_lib.XInternAtom, "XInternAtom");
+        result &= load_xlib_function(m_lib.XKeysymToKeycode, "XKeysymToKeycode");
+        return result;
+    }
 
     void set_window(Window w)
     {
