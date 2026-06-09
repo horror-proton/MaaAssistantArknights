@@ -1,0 +1,166 @@
+on:
+  push:
+  pull_request:
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    #container:
+    #  image: ghcr.io/archlinux/archlinux:base-devel
+    steps:
+      - uses: actions/cache/save@v5
+        with:
+          key: ${{ runner.os }}-umu
+          path: |
+            ~/.local/share/umu
+
+      - if: false
+        run: |
+          cat <<EOF >> /etc/pacman.conf
+          [multilib]
+          Include = /etc/pacman.d/mirrorlist
+          EOF
+          sudo pacman -Syu --noconfirm cage umu-launcher git wlr-randr grim catimg foot xorg-xwayland aria2
+      - run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update -y
+          sudo apt-get install -y cage labwc git wlr-randr grim catimg xwayland aria2 libxkbcommon-dev wayvnc xvfb tigervnc-viewer
+          # wf-recorder 
+
+          aria2c https://github.com/Open-Wine-Components/umu-launcher/releases/download/1.4.0/python3-umu-launcher_1.4.0-1_amd64_ubuntu-noble.deb
+          sudo apt-get install -y ./python3-umu-launcher*.deb
+
+          aria2c https://github.com/cushycush/wdotool/releases/download/v0.5.3/wdotool_0.5.3-1_amd64.deb
+          sudo apt-get install -y ./wdotool*.deb
+
+          # cargo install wdotool
+
+          aria2c https://dawn.wine/dawn-winery/dwproton/releases/download/dwproton-11.0-4/dwproton-11.0-4-x86_64.tar.xz
+          mkdir dwproton
+          tar -xf dwproton-11.0-4-x86_64.tar.xz -C dwproton --strip-components=1
+          ls -lah dwproton
+
+      - if: false
+        run: |
+          sudo apt-get install ubuntu-dbgsym-keyring
+
+          echo "Types: deb
+          URIs: http://ddebs.ubuntu.com/
+          Suites: $(lsb_release -cs) $(lsb_release -cs)-updates $(lsb_release -cs)-proposed 
+          Components: main restricted universe multiverse
+          Signed-by: /usr/share/keyrings/ubuntu-dbgsym-keyring.gpg" | \
+          sudo tee -a /etc/apt/sources.list.d/ddebs.sources
+
+          sudo apt-get update -y
+          sudo apt-get install -y cage-dbgsym libwlroots12t64-dbgsym
+
+      - run: |
+          cat <<EOF | sudo tee -a /etc/apparmor.d/bwrap
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile bwrap /usr/bin/bwrap flags=(unconfined) {
+            userns,
+            # Site-specific additions and overrides. See local/README for details.
+            include if exists <local/bwrap>
+          }
+          EOF
+
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sudo sysctl -w kernel.unprivileged_userns_clone=1
+          sudo systemctl restart apparmor
+      - run: |
+          aria2c 'https://launcher.hypergryph.com/launcher/get_latest_launcher?appcode=abYeZZ16BPluCFyT&ta=arknights&channel=1'
+
+      - run: |
+          export WLR_RENDERER_FORCE_SOFTWARE=1
+          export WLR_SCENE_DISABLE_DIRECT_SCANOUT=1
+          export WLR_BACKENDS=headless
+          export WLR_LIBINPUT_NO_DEVICES=1
+          export WLR_RENDERER=pixman
+
+          export WINEPREFIX=~/.wine
+          # export PROTONPATH=/usr/share/steam/compatibilitytools.d/dwproton/
+          export PROTONPATH=$PWD/dwproton
+          export UMU_NO_RUNTIME=1
+          export UMU_RUNTIME_UPDATE=0
+          export UMU_LOG=debug
+          export WINEDEBUG=+cursor
+
+          umu-run wineboot
+          cp ./HypergryphLauncher*.exe $WINEPREFIX/drive_c/HypergryphLauncher.exe
+
+          # cage -d -- umu-run C:/HypergryphLauncher.exe &
+          labwc -Vs wayvnc &
+
+          #Xvfb :90 -screen 0 1280x720x24 &
+          #DISPLAY=:90 vncviewer localhost:5900 &
+          xvfb-run vncviewer localhost:5900 &
+
+          export DISPLAY=:0
+          export WAYLAND_DISPLAY=wayland-0
+
+          sleep 10
+
+          # wf-recorder --no-damage --muxer matroska -o HEADLESS-1 -f /dev/null &
+
+          umu-run C:/HypergryphLauncher.exe &
+
+          sleep 30
+
+          sc() {
+            # grim - | catimg -w 320 -
+            local name=$(date +%s).png
+            grim $name
+            echo
+            catimg -w 160 $name
+          }
+
+          wdotool --backend wlr-protocols info
+          wdotool --backend wlr-protocols getactivewindow
+
+          wdotool --backend wlr-protocols mousemove 285 545
+          wdotool --backend wlr-protocols mousemove --relative 2 1
+          wdotool --backend wlr-protocols click 1
+          sleep 1
+          sc
+
+          wdotool --backend wlr-protocols mousemove 640 590
+          wdotool --backend wlr-protocols mousemove --relative 2 1
+          wdotool --backend wlr-protocols click 1
+          sleep 1
+          sc
+
+          sleep 10
+
+          ls -lah /dev/dri/
+
+          ls -lah $WINEPREFIX/drive_c/Program\ Files/Hypergryph\ Launcher/
+
+          wdotool --backend wlr-protocols click 1
+          sleep 1
+          sc
+
+          while sleep 5; do
+            sc
+            ps -C umu-run && continue || break
+          done
+
+          umu-run C:/Program\ Files/Hypergryph\ Launcher/Launcher.exe &
+
+          sleep 10
+          sc
+          sleep 10
+          sc
+
+      - uses: actions/cache/restore@v5
+        if: always()
+        with:
+          key: ${{ runner.os }}-umu
+          path: |
+            ~/.local/share/umu
+
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: screenshots
+          path: "*.png"
